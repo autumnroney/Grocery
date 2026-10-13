@@ -15,6 +15,12 @@
     onProfile(fn)      calls fn(profile) once it loads and after every save
     saveProfile(obj)   creates or updates the profile; resolves to the saved row
 
+  Roles (public.user_roles: admin, employee or customer):
+    role               the signed-in user's role; "customer" until loaded
+    onRole(fn)         calls fn(role) once it loads
+    callAdmin(action, body)  calls the admin edge function; resolves to its
+                       data or rejects with a readable Error
+
   Signed-in users without a profile who land on the planner (e.g. from their
   first magic link) are sent to profile.html to set one up.
 
@@ -23,9 +29,10 @@
 (function () {
   "use strict";
 
-  var listeners = [], profileListeners = [];
-  var auth = { user: null, client: null, profile: undefined, onChange: onChange, signIn: signIn, signOut: signOut,
-    onProfile: onProfile, saveProfile: saveProfile };
+  var listeners = [], profileListeners = [], roleListeners = [];
+  var auth = { user: null, client: null, profile: undefined, role: "customer", roleLoaded: false,
+    onChange: onChange, signIn: signIn, signInWithPassword: signInWithPassword, signOut: signOut,
+    onProfile: onProfile, saveProfile: saveProfile, onRole: onRole, callAdmin: callAdmin };
   var SKIP_KEY = "bw-profile-skipped";
   window.BW = window.BW || {};
   BW.auth = auth;
@@ -62,9 +69,12 @@
       // Run listeners outside the auth callback so they can call Supabase safely.
       setTimeout(function () {
         auth.profile = user ? undefined : null;
+        auth.role = "customer";
+        auth.roleLoaded = !user;
         renderAccount();
         listeners.forEach(function (fn) { fn(user, event); });
-        if (user) loadProfile(user);
+        if (user) { loadProfile(user); loadRole(user); }
+        else roleListeners.forEach(function (fn) { fn("customer"); });
       }, 0);
     }
   });
@@ -122,6 +132,44 @@
     try { sessionStorage.setItem(SKIP_KEY, "1"); } catch (e) { /* ignore */ }
   };
 
+  // ---------- Roles ----------
+  // The role only shapes what the page shows. The admin edge function checks
+  // the role again on every request, so hiding or showing links is not what
+  // keeps the admin tools safe.
+
+  function loadRole(user) {
+    auth.client.from("user_roles").select("role").eq("user_id", user.id).maybeSingle().then(function (res) {
+      if (auth.user !== user) return;
+      auth.role = (res.data && res.data.role) || "customer";
+      auth.roleLoaded = true;
+      renderAccount();
+      roleListeners.forEach(function (fn) { fn(auth.role); });
+    });
+  }
+
+  function onRole(fn) {
+    roleListeners.push(fn);
+    if (auth.roleLoaded) setTimeout(function () { fn(auth.role); }, 0);
+  }
+
+  function callAdmin(action, body) {
+    var payload = { action: action };
+    Object.keys(body || {}).forEach(function (k) { payload[k] = body[k]; });
+    return auth.client.functions.invoke("admin", { body: payload }).then(function (res) {
+      if (!res.error) return res.data.data;
+      var ctx = res.error.context;
+      if (ctx && typeof ctx.json === "function") {
+        return ctx.json().then(function (j) { throw new Error((j && j.error) || res.error.message); },
+          function (e) { if (e instanceof Error && e.message) throw e; throw new Error(res.error.message); });
+      }
+      throw new Error(res.error.message || "Couldn't reach the admin service.");
+    });
+  }
+
+  function signInWithPassword(email, password) {
+    return auth.client.auth.signInWithPassword({ email: email, password: password });
+  }
+
   function redirectUrl() {
     return location.origin + "/plan.html";
   }
@@ -167,10 +215,13 @@
           "</button>" +
           '<div class="account-menu card"' + (wasOpen ? "" : " hidden") + ">" +
             (name ? '<p class="account-name">' + esc(name) + "</p>" : '<p class="xsmall muted">Signed in as</p>') +
+            (auth.role !== "customer" ? '<p><span class="badge role-' + auth.role + '">' + (auth.role === "admin" ? "Administrator" : "Employee") + "</span></p>" : "") +
             '<p class="account-email' + (name ? " xsmall muted" : "") + '">' + esc(email) + "</p>" +
             (location.pathname.indexOf("plan") < 0 ? '<a class="btn btn-sm btn-primary" href="plan.html">Open my planner</a>' : "") +
             (location.pathname.indexOf("profile") < 0
               ? '<a class="btn btn-sm btn-ghost" href="profile.html">' + (auth.profile === null ? "Set up your profile" : "Your profile") + "</a>" : "") +
+            (auth.role !== "customer" && location.pathname.indexOf("admin") < 0
+              ? '<a class="btn btn-sm btn-ghost" href="admin.html">Admin console</a>' : "") +
             '<button type="button" class="btn btn-sm btn-ghost" data-signout>Sign out</button>' +
           "</div>" +
         "</div>";

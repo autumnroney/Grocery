@@ -19,6 +19,11 @@
   to = "/profile.html"
   status = 200
 
+[[redirects]]
+  from = "/admin"
+  to = "/admin.html"
+  status = 200
+
 [[headers]]
   for = "/*"
   [headers.values]
@@ -36,3 +41,10 @@
   for = "/js/*"
   [headers.values]
     Cache-Control = "public, max-age=3600, must-revalidate"
+
+# Keep the admin console out of search engines and caches.
+[[headers]]
+  for = "/admin*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "no-store"

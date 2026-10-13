@@ -58,6 +58,7 @@
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();
+    if (passwordMode) { passwordForm.requestSubmit(); return; }
     err.textContent = "";
     var email = emailInput.value.trim();
     if (!email || !emailInput.checkValidity()) {
@@ -83,6 +84,45 @@
     }, function (error) {
       resendMsg.textContent = friendlyError(error);
     });
+  });
+
+  // Password sign-in, for accounts an admin has given a password.
+  var passwordForm = document.getElementById("passwordForm");
+  var modeSwitch = document.getElementById("modeSwitch");
+  var passwordMode = false;
+  modeSwitch.addEventListener("click", function () {
+    passwordMode = !passwordMode;
+    passwordForm.hidden = !passwordMode;
+    sendBtn.hidden = passwordMode;
+    err.textContent = "";
+    modeSwitch.textContent = passwordMode ? "Email me a sign-in link instead" : "Sign in with a password instead";
+    (passwordMode && emailInput.value ? document.getElementById("password") : emailInput).focus();
+  });
+  passwordForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var pErr = document.getElementById("passwordError");
+    var btn = document.getElementById("passwordBtn");
+    var email = emailInput.value.trim();
+    var password = document.getElementById("password").value;
+    pErr.textContent = "";
+    if (!email || !emailInput.checkValidity()) { err.textContent = "Please enter a valid email address."; emailInput.focus(); return; }
+    if (!password) { pErr.textContent = "Please enter your password."; return; }
+    btn.disabled = true;
+    btn.textContent = "Signing in…";
+    auth.signInWithPassword(email, password).then(function (res) {
+      if (res.error) {
+        btn.disabled = false;
+        btn.textContent = "Sign in";
+        pErr.textContent = /invalid login/i.test(res.error.message)
+          ? "That email and password don't match. You can also get a sign-in link by email."
+          : friendlyError(res.error);
+        return;
+      }
+      location.href = "plan.html";
+    });
+  });
+  document.getElementById("password").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); passwordForm.requestSubmit(); }
   });
 
   document.getElementById("changeEmail").addEventListener("click", function () {

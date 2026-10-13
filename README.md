@@ -17,6 +17,7 @@ Light and dark mode follow the system setting, and a toggle in the header lets y
 | `plan.html` (`/plan`) | The planner app: Plan, List, Nutrition, Stores |
 | `login.html` (`/login`) | Email sign-in (magic link) |
 | `profile.html` (`/profile`) | Create or edit your profile |
+| `admin.html` (`/admin`) | Admin console (administrators and employees) |
 | `thanks.html` | Demo request confirmation |
 | `404.html` | Not-found page |
 
@@ -34,9 +35,11 @@ js/config.js     Supabase project URL + publishable key
 js/auth.js       sign-in state, magic links, header account menu
 js/login.js      sign-in page
 js/profile.js    profile page
+js/admin.js      admin console
+css/admin.css    admin console styles
 js/vendor/       supabase-js 2.117.3 (browser build, MIT)
 css/auth.css     sign-in page + account menu styles
-supabase/        database migrations
+supabase/        database migrations + the `admin` edge function
 ```
 
 Plain HTML/CSS/JS with no build step. The planner saves the week in the browser's `localStorage`, and also to the user's account when they're signed in.
@@ -92,3 +95,25 @@ python3 -m http.server 8000
 2. Branch: `main`. Leave the build command empty. Publish directory: `.` (already set in `netlify.toml`).
 3. Deploy. Netlify redeploys every time you push to `main`.
 4. Demo requests from the "For grocers" form show up under **Forms** in the Netlify dashboard. Turn on form detection if Netlify asks.
+
+## Roles and the admin console
+
+Every account has one role, stored in `public.user_roles`. New sign-ups are customers.
+
+| Role | Can do |
+| --- | --- |
+| **Administrator** | Everything in the admin console: see all users, change roles, set passwords, change emails, suspend or unsuspend, sign a user out everywhere, delete accounts, invite users (as customer, employee or admin), view the activity log and site health |
+| **Employee** | View the console (overview, health, users, activity log) and email a user a sign-in link. Every other action is shown but disabled |
+| **Customer** | The planner only. Opening `/admin` shows "You don't have access" |
+
+**How it stays secure:** the browser never gets admin powers. Every admin action is a request to the `admin` Supabase Edge Function (`supabase/functions/admin/index.ts`). It verifies the caller's session, looks up their role in the database, refuses anything the role doesn't allow, does the work with the project's secret key (which exists only on Supabase's servers), and writes the action to `public.admin_audit_log`. Admins can't suspend or delete themselves, and the last admin can't be demoted.
+
+**The console shows:**
+- **System health:** database connection and response time, Postgres version, connections in use, database size and uptime; the sign-in service's status and active sessions; the admin API's response time. You can refresh by hand or have it refresh every minute.
+- **Usage:** total, new and active users, profiles set up, saved plans and meals, accounts that need attention, the most planned recipes, and popular diets and stores.
+- **Users:** search, filter by role or suspended, export to CSV, and open any user to see their account, profile and plan, then act on it.
+- **Activity log:** who did what to whom, and when.
+
+To make someone an employee or admin, open them under **Users → Role**, or use **Invite user**.
+
+To redeploy the function after editing it, use the Supabase CLI (`supabase functions deploy admin --no-verify-jwt`). The function checks the session itself, so it's deployed with gateway JWT verification turned off.

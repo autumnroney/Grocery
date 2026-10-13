@@ -45,6 +45,15 @@
           <p class="form-error" id="emailError" role="alert"></p>
           <button class="btn btn-primary btn-block" type="submit" id="sendBtn">Email me a sign-in link</button>
         </form>
+        <form id="passwordForm" novalidate hidden>
+          <label class="input">
+            <span>Password</span>
+            <input type="password" id="password" name="password" autocomplete="current-password" aria-describedby="passwordError">
+          </label>
+          <p class="form-error" id="passwordError" role="alert"></p>
+          <button class="btn btn-primary btn-block" type="submit" id="passwordBtn">Sign in</button>
+        </form>
+        <p class="small mode-switch"><button type="button" class="linklike" id="modeSwitch">Sign in with a password instead</button></p>
         <ul class="perks small">
           <li>✓ Your week's plan and grocery list follow you to any device</li>
           <li>✓ Free, no credit card</li>

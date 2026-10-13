@@ -91,3 +91,13 @@
 /* Planner greeting */
 .greeting { margin: 0 0 .25rem; font-weight: 600; color: var(--primary); }
 .diet-note { margin: .25rem 0 0; }
+
+/* Role badges */
+.badge.role-admin { background: color-mix(in srgb, var(--berry) 18%, transparent); color: var(--berry); }
+.badge.role-employee { background: var(--info-soft); color: var(--info); }
+.badge.role-customer { background: var(--surface-2); color: var(--muted); }
+:root[data-theme-active="dark"] .badge.role-admin { color: #F07AA8; }
+
+.mode-switch { margin: .75rem 0 0; text-align: center; }
+.mode-switch .linklike { font-weight: 500; color: var(--primary); }
+#passwordForm { margin-top: .75rem; }
