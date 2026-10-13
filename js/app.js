@@ -69,7 +69,7 @@
 
   function defaults() {
     // owner: id of the signed-in user this plan belongs to (null when signed out).
-    return { household: 4, carbGoal: "standard", plan: [], have: [], need: [], cart: [], store: null, tab: "plan", seq: 1, owner: null };
+    return { household: 4, carbGoal: "standard", plan: [], have: [], need: [], cart: [], store: null, tab: "plan", seq: 1, owner: null, profileAt: null };
   }
   function applySaved(s, saved) {
     Object.keys(s).forEach(function (k) { if (saved && saved[k] !== undefined) s[k] = saved[k]; });
@@ -91,7 +91,7 @@
   // Signed-in users get their week saved to the `plans` table, one row per
   // user, so it follows them to other devices. Signed-out use stays local.
 
-  var SYNC_KEYS = ["household", "carbGoal", "plan", "have", "need", "cart", "store", "seq"];
+  var SYNC_KEYS = ["household", "carbGoal", "plan", "have", "need", "cart", "store", "seq", "profileAt"];
   var sync = { user: null, ready: false, timer: null, lastJson: null, lastAt: null, pushing: false };
 
   function syncData() {
@@ -144,6 +144,8 @@
   function onAuthChange(user) {
     if (!user) {
       sync.user = null; sync.ready = false;
+      profile = null; pendingProfile = undefined;
+      renderGreeting();
       setSyncStatus('<a href="login.html">Sign in</a> to save your week and open it on any device.');
       return;
     }
@@ -154,6 +156,7 @@
       if (sync.user !== user) return;
       if (res.error) {
         setSyncStatus('<span class="err">Couldn\'t load your saved week.</span> Your changes are kept on this device.');
+        if (pendingProfile !== undefined) applyProfile(pendingProfile);
         return;
       }
       var row = res.data;
@@ -170,10 +173,73 @@
       }
       state.owner = user.id;
       sync.ready = true;
+      if (pendingProfile !== undefined) applyProfile(pendingProfile);
       render();
       if (JSON.stringify(syncData()) === sync.lastJson) setSyncStatus('<span class="ok">✓ Saved to your account</span>');
       else push();
     });
+  }
+
+  // ---------- Profile ----------
+  // The profile (profile.html) sets the planner's defaults: household size,
+  // carb goal, store and diet. A week's own tweaks stick until the profile
+  // is edited again (tracked with state.profileAt).
+
+  var profile = null, pendingProfile;
+
+  function onProfile(p) {
+    pendingProfile = p;
+    // Wait for the saved week to load first so it can't overwrite the defaults.
+    if (sync.ready || !sync.user) applyProfile(p);
+  }
+
+  function applyProfile(p) {
+    var firstApply = profile === null;
+    profile = p || null;
+    if (profile && state.profileAt !== profile.updated_at) {
+      state.household = profile.household_size;
+      state.carbGoal = BW.CARB_GOALS[profile.carb_goal] ? profile.carb_goal : "standard";
+      state.store = profile.preferred_store || null;
+      state.profileAt = profile.updated_at;
+      ui.tags = profile.diet.filter(function (t) { return BW.TAGS[t]; });
+      renderFilters();
+    } else if (profile && firstApply) {
+      ui.tags = profile.diet.filter(function (t) { return BW.TAGS[t]; });
+      renderFilters();
+    }
+    renderGreeting();
+    render();
+  }
+
+  // Vegetarian and gluten-free are hard limits for suggestions; the other
+  // diet choices only pre-select recipe filters.
+  function dietOk(r) {
+    if (!profile) return true;
+    return profile.diet.every(function (t) {
+      return (t !== "vegetarian" && t !== "gluten-free") || r.tags.indexOf(t) >= 0;
+    });
+  }
+
+  function renderGreeting() {
+    var g = document.getElementById("greeting");
+    var note = document.getElementById("dietNote");
+    if (!g) return;
+    if (profile) {
+      g.textContent = "Hi, " + profile.display_name + "!";
+      g.hidden = false;
+      var limits = profile.diet.filter(function (t) { return t === "vegetarian" || t === "gluten-free"; });
+      note.innerHTML = "Planning for " + profile.household_size + (profile.household_size === 1 ? " person" : " people") +
+        (limits.length ? ", suggesting only " + limits.map(function (t) { return BW.TAGS[t].toLowerCase(); }).join(" and ") + " recipes" : "") +
+        '. <a href="profile.html">Edit profile</a>';
+      note.hidden = false;
+    } else if (sync.user && BW.auth.profile === null) {
+      g.hidden = true;
+      note.innerHTML = '<a href="profile.html">Set up your profile</a> so recipes and portions fit your family.';
+      note.hidden = false;
+    } else {
+      g.hidden = true;
+      note.hidden = true;
+    }
   }
 
   // Coming back to the tab: pick up changes made on another device.
@@ -260,6 +326,7 @@
     RECIPES.forEach(function (r) {
       if (planned[r.id]) return;
       if (mealFilter && r.meal !== mealFilter) return;
+      if (!dietOk(r)) return;
       var withR = buildList(state.plan.concat([{ recipe: r.id }]));
       var added = withR.totals[bi] - list.totals[bi];
       var reuses = [], saved = 0, shared = 0;
@@ -361,7 +428,7 @@
 
   function autoPlan() {
     state.plan = state.plan.filter(function (p) { return p.meal !== "dinner"; });
-    var first = RECIPES.filter(function (r) { return r.meal === "dinner"; })
+    var first = RECIPES.filter(function (r) { return r.meal === "dinner" && dietOk(r); })
       .sort(function (a, b) { return costPerServing(a) - costPerServing(b); })[Math.floor(Math.random() * 4)];
     var days = [0, 1, 2, 3, 4];
     state.plan.push({ id: state.seq++, recipe: first.id, day: days[0], meal: "dinner" });
@@ -389,6 +456,7 @@
 
   function renderSummary(list) {
     document.getElementById("household").textContent = state.household;
+    document.getElementById("carbGoal").value = state.carbGoal;
     document.getElementById("statMeals").textContent = state.plan.length;
     var buy = list.items.filter(function (it) { return !it.have; }).length;
     document.getElementById("statItems").textContent = buy;
@@ -512,7 +580,7 @@
     var ul = document.getElementById("suggestList");
     if (!state.plan.length) {
       intro.textContent = "Add a recipe and we'll suggest others that reuse its ingredients. Or start with one of these budget-friendly picks:";
-      var cheap = RECIPES.filter(function (r) { return r.meal === "dinner"; })
+      var cheap = RECIPES.filter(function (r) { return r.meal === "dinner" && dietOk(r); })
         .sort(function (a, b) { return costPerServing(a) - costPerServing(b); }).slice(0, 4);
       ul.innerHTML = cheap.map(function (r) {
         return suggestItem(r, "About " + money(costPerServing(r)) + " per serving");
@@ -579,7 +647,7 @@
     if (risks.length) {
       left.innerHTML = '<div class="leftover-card card"><h2 class="h5">♻ Use it up</h2><ul>' + risks.map(function (it) {
         var fix = RECIPES.filter(function (r) {
-          return state.plan.every(function (p) { return p.recipe !== r.id; }) && r.ing.some(function (p) { return p[0] === it.id; });
+          return dietOk(r) && state.plan.every(function (p) { return p.recipe !== r.id; }) && r.ing.some(function (p) { return p[0] === it.id; });
         }).sort(function (a, b) { return costPerServing(a) - costPerServing(b); })[0];
         return "<li><span><strong>" + esc(it.ing.n) + ":</strong> " + fmtQty(it.left, it.ing) + " left over that won't keep long.</span>" +
           (fix ? ' <span class="leftover-fix">Try <button type="button" class="linklike" data-open="' + fix.id + '">' + esc(fix.name) + '</button> <button type="button" class="btn btn-sm btn-ghost" data-add="' + fix.id + '">Add</button></span>' : "") +
@@ -716,7 +784,7 @@
       html += '<p class="small"><strong>✓ Nicely balanced.</strong> Your planned meals cover every nutrient we track.</p>';
     }
     gaps.forEach(function (g) {
-      var picks = RECIPES.filter(function (r) { return state.plan.every(function (p) { return p.recipe !== r.id; }); })
+      var picks = RECIPES.filter(function (r) { return dietOk(r) && state.plan.every(function (p) { return p.recipe !== r.id; }); })
         .sort(function (a, b) { return perServing(b)[g.n.key] - perServing(a)[g.n.key]; }).slice(0, 2);
       html += '<div class="gap"><p class="small"><strong>' + g.n.label + " is low</strong> (" + Math.round(g.pct) + "% of target). " + gapTip(g.n.key) + "</p><ul class=\"suggest-list\">" +
         picks.map(function (r) { return suggestItem(r, round(perServing(r)[g.n.key]) + " " + g.n.unit + " " + g.n.label.toLowerCase() + " per serving"); }).join("") + "</ul></div>";
@@ -930,5 +998,8 @@
   if (TABS.some(function (t) { return t.id === hash; })) state.tab = hash;
   renderFilters();
   render();
-  if (BW.auth && !BW.auth.unavailable) BW.auth.onChange(onAuthChange);
+  if (BW.auth && !BW.auth.unavailable) {
+    BW.auth.onChange(onAuthChange);
+    BW.auth.onProfile(onProfile);
+  }
 })();

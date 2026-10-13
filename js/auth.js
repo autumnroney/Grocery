@@ -9,13 +9,24 @@
     signOut()      signs out and clears the plan saved on this device
     client         the Supabase client, for reading and writing data
 
+  Profiles (public.profiles, one row per user):
+    profile            the signed-in user's profile, null if they haven't made
+                       one yet, undefined while it's loading
+    onProfile(fn)      calls fn(profile) once it loads and after every save
+    saveProfile(obj)   creates or updates the profile; resolves to the saved row
+
+  Signed-in users without a profile who land on the planner (e.g. from their
+  first magic link) are sent to profile.html to set one up.
+
   Also renders the account button into any element with [data-account].
 */
 (function () {
   "use strict";
 
-  var listeners = [];
-  var auth = { user: null, client: null, onChange: onChange, signIn: signIn, signOut: signOut };
+  var listeners = [], profileListeners = [];
+  var auth = { user: null, client: null, profile: undefined, onChange: onChange, signIn: signIn, signOut: signOut,
+    onProfile: onProfile, saveProfile: saveProfile };
+  var SKIP_KEY = "bw-profile-skipped";
   window.BW = window.BW || {};
   BW.auth = auth;
 
@@ -50,8 +61,10 @@
     if (changed || event === "INITIAL_SESSION") {
       // Run listeners outside the auth callback so they can call Supabase safely.
       setTimeout(function () {
+        auth.profile = user ? undefined : null;
         renderAccount();
         listeners.forEach(function (fn) { fn(user, event); });
+        if (user) loadProfile(user);
       }, 0);
     }
   });
@@ -61,6 +74,53 @@
     listeners.push(fn);
     if (isReady) setTimeout(function () { fn(auth.user, "INITIAL_SESSION"); }, 0);
   }
+
+  // ---------- Profiles ----------
+
+  function setProfile(profile) {
+    if (profile && !Array.isArray(profile.diet)) profile.diet = [];
+    auth.profile = profile;
+    renderAccount();
+    profileListeners.forEach(function (fn) { fn(profile); });
+  }
+
+  function loadProfile(user) {
+    auth.client.from("profiles").select("*").eq("id", user.id).maybeSingle().then(function (res) {
+      if (auth.user !== user) return; // signed out or switched while loading
+      if (res.error) { setProfile(null); return; }
+      setProfile(res.data);
+      if (!res.data && needsOnboarding()) {
+        location.replace("profile.html?welcome=1");
+      }
+    });
+  }
+
+  // Send new users to set up a profile once per browser session, only from
+  // the planner (where magic links land), so it never interrupts other pages.
+  function needsOnboarding() {
+    if (!/plan/.test(location.pathname)) return false;
+    try { return !sessionStorage.getItem(SKIP_KEY); } catch (e) { return false; }
+  }
+
+  function onProfile(fn) {
+    profileListeners.push(fn);
+    if (auth.profile !== undefined) setTimeout(function () { fn(auth.profile); }, 0);
+  }
+
+  function saveProfile(fields) {
+    if (!auth.user) return Promise.reject(new Error("Not signed in"));
+    var row = { id: auth.user.id };
+    Object.keys(fields).forEach(function (k) { row[k] = fields[k]; });
+    return auth.client.from("profiles").upsert(row).select().single().then(function (res) {
+      if (res.error) throw res.error;
+      setProfile(res.data);
+      return res.data;
+    });
+  }
+
+  auth.skipProfile = function () {
+    try { sessionStorage.setItem(SKIP_KEY, "1"); } catch (e) { /* ignore */ }
+  };
 
   function redirectUrl() {
     return location.origin + "/plan.html";
@@ -76,7 +136,7 @@
   function signOut() {
     return auth.client.auth.signOut().then(function () {
       // Don't leave this person's plan behind on a shared device.
-      try { localStorage.removeItem("bw-planner-v1"); } catch (e) { /* ignore */ }
+      try { localStorage.removeItem("bw-planner-v1"); sessionStorage.removeItem(SKIP_KEY); } catch (e) { /* ignore */ }
     });
   }
 
@@ -98,15 +158,19 @@
         continue;
       }
       var email = auth.user.email || "your account";
+      var name = auth.profile && auth.profile.display_name;
+      var wasOpen = slot.querySelector(".account-menu:not([hidden])");
       slot.innerHTML =
         '<div class="account">' +
-          '<button type="button" class="account-btn" aria-haspopup="true" aria-expanded="false" aria-label="Account menu for ' + esc(email) + '">' +
-            esc(email.charAt(0).toUpperCase()) +
+          '<button type="button" class="account-btn" aria-haspopup="true" aria-expanded="' + !!wasOpen + '" aria-label="Account menu for ' + esc(name || email) + '">' +
+            esc((name || email).charAt(0).toUpperCase()) +
           "</button>" +
-          '<div class="account-menu card" hidden>' +
-            '<p class="xsmall muted">Signed in as</p>' +
-            '<p class="account-email">' + esc(email) + "</p>" +
+          '<div class="account-menu card"' + (wasOpen ? "" : " hidden") + ">" +
+            (name ? '<p class="account-name">' + esc(name) + "</p>" : '<p class="xsmall muted">Signed in as</p>') +
+            '<p class="account-email' + (name ? " xsmall muted" : "") + '">' + esc(email) + "</p>" +
             (location.pathname.indexOf("plan") < 0 ? '<a class="btn btn-sm btn-primary" href="plan.html">Open my planner</a>' : "") +
+            (location.pathname.indexOf("profile") < 0
+              ? '<a class="btn btn-sm btn-ghost" href="profile.html">' + (auth.profile === null ? "Set up your profile" : "Your profile") + "</a>" : "") +
             '<button type="button" class="btn btn-sm btn-ghost" data-signout>Sign out</button>' +
           "</div>" +
         "</div>";

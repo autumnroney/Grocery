@@ -16,6 +16,7 @@ Light and dark mode follow the system setting, and a toggle in the header lets y
 | `index.html` | Landing page (shoppers + "For grocers" band with a Netlify Forms demo request) |
 | `plan.html` (`/plan`) | The planner app: Plan, List, Nutrition, Stores |
 | `login.html` (`/login`) | Email sign-in (magic link) |
+| `profile.html` (`/profile`) | Create or edit your profile |
 | `thanks.html` | Demo request confirmation |
 | `404.html` | Not-found page |
 
@@ -32,6 +33,7 @@ js/landing.js    landing interactions (calculator, pricing toggle)
 js/config.js     Supabase project URL + publishable key
 js/auth.js       sign-in state, magic links, header account menu
 js/login.js      sign-in page
+js/profile.js    profile page
 js/vendor/       supabase-js 2.117.3 (browser build, MIT)
 css/auth.css     sign-in page + account menu styles
 supabase/        database migrations
@@ -46,6 +48,21 @@ Sign-in uses passwordless email: people enter their email, click the link we sen
 - When someone is signed in, their week (meals, list check-offs, household size, carb goal, store) is saved to the `plans` table, one row per user, and loads on any device they sign in on.
 - Row level security makes sure each user can only read and change their own row. The key in `js/config.js` is Supabase's publishable key, which is meant to be public.
 - Signing out clears the plan stored on that device.
+
+### Profiles
+
+The first time someone signs in, the planner sends them to `profile.html` to set up a profile (they can skip it). They can edit it any time from the account menu. Profiles live in `public.profiles`, one row per user, and only the owner can read or change theirs:
+
+| Field | Used for |
+| --- | --- |
+| `display_name` | Greeting and account button |
+| `household_size` | Default servings for recipes and the grocery list |
+| `carb_goal` | Default carb target on the Nutrition tab |
+| `diet` | `vegetarian` / `gluten-free` limit suggestions and "Plan 5 dinners" to recipes that fit; the others pre-select recipe filters |
+| `preferred_store` | Store the list is priced at (empty means the cheapest store each week) |
+| `zip_code` | Saved for local store prices later |
+
+Editing the profile resets the week's household size, carb goal and store to the new defaults. Changes made inside the planner for one week stay until the next profile edit.
 
 ### Supabase dashboard settings (required)
 
