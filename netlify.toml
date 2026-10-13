@@ -9,6 +9,11 @@
   to = "/plan.html"
   status = 200
 
+[[redirects]]
+  from = "/login"
+  to = "/login.html"
+  status = 200
+
 [[headers]]
   for = "/*"
   [headers.values]

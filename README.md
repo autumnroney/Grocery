@@ -15,6 +15,7 @@ Light and dark mode follow the system setting, and a toggle in the header lets y
 | --- | --- |
 | `index.html` | Landing page (shoppers + "For grocers" band with a Netlify Forms demo request) |
 | `plan.html` (`/plan`) | The planner app: Plan, List, Nutrition, Stores |
+| `login.html` (`/login`) | Email sign-in (magic link) |
 | `thanks.html` | Demo request confirmation |
 | `404.html` | Not-found page |
 
@@ -28,9 +29,29 @@ js/theme.js      theme detection + toggle (saved in localStorage)
 js/data.js       recipes, ingredients, nutrition and sample prices
 js/app.js        planner logic
 js/landing.js    landing interactions (calculator, pricing toggle)
+js/config.js     Supabase project URL + publishable key
+js/auth.js       sign-in state, magic links, header account menu
+js/login.js      sign-in page
+js/vendor/       supabase-js 2.117.3 (browser build, MIT)
+css/auth.css     sign-in page + account menu styles
+supabase/        database migrations
 ```
 
-Plain HTML/CSS/JS with no build step. The planner saves the week in the browser's `localStorage`.
+Plain HTML/CSS/JS with no build step. The planner saves the week in the browser's `localStorage`, and also to the user's account when they're signed in.
+
+## Accounts (Supabase)
+
+Sign-in uses passwordless email: people enter their email, click the link we send, and land in the planner signed in. The same link creates a new account. The planner still works without an account.
+
+- When someone is signed in, their week (meals, list check-offs, household size, carb goal, store) is saved to the `plans` table, one row per user, and loads on any device they sign in on.
+- Row level security makes sure each user can only read and change their own row. The key in `js/config.js` is Supabase's publishable key, which is meant to be public.
+- Signing out clears the plan stored on that device.
+
+### Supabase dashboard settings (required)
+
+1. **Authentication → URL Configuration**: set **Site URL** to the Netlify address (e.g. `https://your-site.netlify.app`). Under **Redirect URLs**, add `https://your-site.netlify.app/**` and `http://localhost:8000/**`. Magic links only redirect to URLs on this list.
+2. **Authentication → Emails → SMTP Settings**: Supabase's built-in email is for testing. It only delivers to your project's team members and sends a few emails an hour. Before launch, connect an email provider (Resend, Postmark, SendGrid, Amazon SES...).
+3. Optional: **Authentication → Emails → Templates → Magic link**: change the wording to match Basketwise.
 
 ### Adding a recipe
 

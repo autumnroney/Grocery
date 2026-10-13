@@ -1,0 +1,43 @@
+/* Sign-in page and header account menu (loaded on every page). */
+
+.account { position: relative; }
+.account-btn {
+  display: grid; place-items: center; width: 44px; height: 44px; border-radius: 999px;
+  border: 0; background: var(--gradient); color: #fff; font-weight: 700; cursor: pointer;
+}
+.account-btn:hover { box-shadow: var(--shadow-lg); }
+.account-menu {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 50;
+  width: 240px; padding: 1rem; display: grid; gap: .5rem; box-shadow: var(--shadow-lg);
+}
+.account-menu[hidden] { display: none; }
+.account-menu p { margin: 0; }
+.account-email { font-weight: 600; overflow-wrap: anywhere; margin-bottom: .25rem !important; }
+.account-signin { white-space: nowrap; }
+
+.sync-status { margin: 0; font-size: .8125rem; color: var(--muted); grid-column: 1 / -1; }
+.sync-status a { font-weight: 600; }
+.sync-status .ok { color: var(--success); font-weight: 600; }
+.sync-status .err { color: var(--error); font-weight: 600; }
+
+/* Sign-in page */
+.login-wrap { min-height: calc(100vh - 70px); display: grid; place-items: center; padding: 2rem 16px 4rem; }
+.login-card { width: 100%; max-width: 440px; padding: 2rem 1.5rem; }
+@media (min-width: 640px) { .login-card { padding: 2.5rem; } }
+.login-card h1 { font-size: 2rem; }
+.login-card form { display: grid; gap: .75rem; margin-top: 1.25rem; }
+.input { display: grid; gap: .25rem; font-size: .875rem; font-weight: 500; }
+.input input {
+  min-height: 48px; padding: .5rem .875rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface); font-size: 1rem;
+  transition: box-shadow .2s, border-color .2s;
+}
+.input input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary); }
+.form-error { margin: 0; min-height: 1.25em; font-size: .875rem; color: var(--error); }
+#resendMsg { color: var(--muted); margin-top: .75rem; }
+.btn-block { width: 100%; }
+.perks { list-style: none; padding: 0; margin: 1.25rem 0 0; display: grid; gap: .375rem; color: var(--muted); }
+.sent-icon { display: grid; place-items: center; width: 56px; height: 56px; margin-bottom: 1rem; border-radius: 999px; background: var(--primary-soft); color: var(--success); font-size: 1.6rem; font-weight: 700; }
+.sent-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+.login-card h1:focus { outline: none; }
+.back { margin: 1.5rem 0 0; padding-top: 1rem; border-top: 1px solid var(--border); }

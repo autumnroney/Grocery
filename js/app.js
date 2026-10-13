@@ -68,24 +68,126 @@
   var state = load();
 
   function defaults() {
-    return { household: 4, carbGoal: "standard", plan: [], have: [], need: [], cart: [], store: null, tab: "plan", seq: 1 };
+    // owner: id of the signed-in user this plan belongs to (null when signed out).
+    return { household: 4, carbGoal: "standard", plan: [], have: [], need: [], cart: [], store: null, tab: "plan", seq: 1, owner: null };
   }
-  function load() {
-    var s = defaults();
-    try {
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        var saved = JSON.parse(raw);
-        Object.keys(s).forEach(function (k) { if (saved[k] !== undefined) s[k] = saved[k]; });
-        s.plan = (s.plan || []).filter(function (p) { return byId[p.recipe]; });
-      }
-    } catch (e) { /* storage unavailable: start fresh */ }
+  function applySaved(s, saved) {
+    Object.keys(s).forEach(function (k) { if (saved && saved[k] !== undefined) s[k] = saved[k]; });
+    s.plan = (s.plan || []).filter(function (p) { return byId[p.recipe]; });
     if (!BW.CARB_GOALS[s.carbGoal]) s.carbGoal = "standard";
     return s;
   }
+  function load() {
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch (e) { /* start fresh */ }
+    return applySaved(defaults(), saved);
+  }
   function save() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+    queuePush();
   }
+
+  // ---------- Account sync (Supabase) ----------
+  // Signed-in users get their week saved to the `plans` table, one row per
+  // user, so it follows them to other devices. Signed-out use stays local.
+
+  var SYNC_KEYS = ["household", "carbGoal", "plan", "have", "need", "cart", "store", "seq"];
+  var sync = { user: null, ready: false, timer: null, lastJson: null, lastAt: null, pushing: false };
+
+  function syncData() {
+    var d = {};
+    SYNC_KEYS.forEach(function (k) { d[k] = state[k]; });
+    return d;
+  }
+  function setSyncStatus(html) {
+    var el = document.getElementById("syncStatus");
+    if (el) el.innerHTML = html;
+  }
+  function queuePush() {
+    if (!sync.ready || !sync.user) return;
+    if (JSON.stringify(syncData()) === sync.lastJson) return;
+    clearTimeout(sync.timer);
+    setSyncStatus("Saving…");
+    sync.timer = setTimeout(push, 700);
+  }
+  function push() {
+    if (!sync.ready || !sync.user) return Promise.resolve();
+    var data = syncData(), json = JSON.stringify(data), now = new Date().toISOString();
+    sync.pushing = true;
+    sync.lastJson = json; // so edits made while this request is in flight still queue a save
+    clearTimeout(sync.timer);
+    return BW.auth.client.from("plans")
+      .upsert({ user_id: sync.user.id, data: data, updated_at: now })
+      .then(function (res) {
+        sync.pushing = false;
+        if (res.error) {
+          sync.lastJson = null;
+          setSyncStatus('<span class="err">Couldn\'t save to your account.</span> Your changes are kept on this device.');
+          return;
+        }
+        sync.lastAt = now;
+        setSyncStatus('<span class="ok">✓ Saved to your account</span>');
+      });
+  }
+  function fetchRemote() {
+    return BW.auth.client.from("plans").select("data, updated_at").eq("user_id", sync.user.id).maybeSingle();
+  }
+  function useRemote(row) {
+    var tab = state.tab;
+    state = applySaved(defaults(), row.data);
+    state.tab = tab;
+    state.owner = sync.user.id;
+    sync.lastJson = JSON.stringify(syncData());
+    sync.lastAt = row.updated_at;
+  }
+
+  function onAuthChange(user) {
+    if (!user) {
+      sync.user = null; sync.ready = false;
+      setSyncStatus('<a href="login.html">Sign in</a> to save your week and open it on any device.');
+      return;
+    }
+    if (sync.user && sync.user.id === user.id) return;
+    sync.user = user; sync.ready = false;
+    setSyncStatus("Loading your saved week…");
+    fetchRemote().then(function (res) {
+      if (sync.user !== user) return;
+      if (res.error) {
+        setSyncStatus('<span class="err">Couldn\'t load your saved week.</span> Your changes are kept on this device.');
+        return;
+      }
+      var row = res.data;
+      var remoteHasMeals = row && row.data && row.data.plan && row.data.plan.length;
+      var localIsTheirs = state.owner === user.id;
+      var differs = row && JSON.stringify(applySaved(defaults(), row.data).plan) !== JSON.stringify(state.plan);
+      if (remoteHasMeals && (localIsTheirs || !state.plan.length || !differs)) {
+        useRemote(row);
+      } else if (remoteHasMeals) {
+        // Meals were planned on this device before signing in, and the
+        // account already has a different week saved.
+        var keepLocal = confirm("Your account already has a saved week.\n\nOK: replace it with the meals on this device.\nCancel: load the week saved to your account.");
+        if (!keepLocal) useRemote(row);
+      }
+      state.owner = user.id;
+      sync.ready = true;
+      render();
+      if (JSON.stringify(syncData()) === sync.lastJson) setSyncStatus('<span class="ok">✓ Saved to your account</span>');
+      else push();
+    });
+  }
+
+  // Coming back to the tab: pick up changes made on another device.
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden || !sync.ready || !sync.user || sync.pushing) return;
+    fetchRemote().then(function (res) {
+      var row = res.data;
+      if (res.error || !row || row.updated_at === sync.lastAt) return;
+      if (JSON.stringify(syncData()) !== sync.lastJson) return; // local edits pending
+      useRemote(row);
+      render();
+      toast("Updated with changes from your other device.");
+    });
+  });
 
   var ui = { query: "", meal: "all", tags: [] };
   var animateList = true;
@@ -828,4 +930,5 @@
   if (TABS.some(function (t) { return t.id === hash; })) state.tab = hash;
   renderFilters();
   render();
+  if (BW.auth && !BW.auth.unavailable) BW.auth.onChange(onAuthChange);
 })();
